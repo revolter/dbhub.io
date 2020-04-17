@@ -519,14 +519,12 @@
         // If saved parameter data was passed through, update the initial values
         if ("[[ .ParamsGiven ]]" === "true") {
             $scope.db.XTablename = "[[ .XAxisTable ]]";
-            $scope.XAxisColumn = "[[ .XAxis ]]";
+            $scope.XAxisColumn = "[[ .XAxisCol ]]";
             barChartData.XAxisLabel = $scope.XAxisColumn;
             $scope.db.YTablename = "[[ .YAxisTable ]]";
-            $scope.YAxisColumn = "[[ .YAxis ]]";
+            $scope.YAxisColumn = "[[ .YAxisCol ]]";
             barChartData.YAxisLabel = $scope.YAxisColumn;
             $scope.AggType = "[[ .AggType ]]";
-            barChartOrderBy = [[ .OrderBy ]];
-            barChartOrderDirection = [[ .OrderDir ]];
         }
 
         // If the data points for visualisation were provided, set the flag to indicate this
