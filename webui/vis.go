@@ -19,20 +19,22 @@ func visualisePage(w http.ResponseWriter, r *http.Request) {
 	pageName := "Visualise data page"
 
 	var pageData struct {
-		Auth0       com.Auth0Set
-		Data        com.SQLiteRecordSet
-		DB          com.SQLiteDBinfo
-		Meta        com.MetaInfo
-		MyStar      bool
-		MyWatch     bool
-		ParamsGiven bool
-		DataGiven   bool
-		XAxis       string
-		YAxis       string
-		AggType     string
-		OrderBy     int
-		OrderDir    int
-		Records     []com.VisRowV1
+		Auth0         com.Auth0Set
+		Data          com.SQLiteRecordSet
+		DB            com.SQLiteDBinfo
+		Meta          com.MetaInfo
+		MyStar        bool
+		MyWatch       bool
+		ParamsGiven   bool
+		DataGiven     bool
+		XAxisTable    string
+		XAxisCol      string
+		XAxisColNames []string
+		YAxisTable    string
+		YAxisCol      string
+		YAxisColNames []string
+		AggType       string
+		Records       []com.VisRowV1
 	}
 
 	// Retrieve the database owner & name
@@ -75,14 +77,23 @@ func visualisePage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// If a table name was supplied, validate it
-	dbTable := r.FormValue("table")
-	if dbTable != "" {
-		err = com.ValidatePGTable(dbTable)
+	// If any table names were supplied, validate them
+	xTable := r.FormValue("xtable")
+	if xTable != "" {
+		err = com.ValidatePGTable(xTable)
 		if err != nil {
 			// Validation failed, so don't pass on the table name
-			log.Printf("%s: Validation failed for table name: %s", pageName, err)
-			dbTable = ""
+			log.Printf("%s: Validation failed for X axis table name: %s", pageName, err)
+			xTable = ""
+		}
+	}
+	yTable := r.FormValue("ytable")
+	if yTable != "" {
+		err = com.ValidatePGTable(yTable)
+		if err != nil {
+			// Validation failed, so don't pass on the table name
+			log.Printf("%s: Validation failed for Y axis table name: %s", pageName, err)
+			yTable = ""
 		}
 	}
 
@@ -108,27 +119,6 @@ func visualisePage(w http.ResponseWriter, r *http.Request) {
 			errorPage(w, r, http.StatusBadRequest, "Validation failed for release name")
 			return
 		}
-	}
-
-	// If an order and direction were given, pass that through to the rendered page
-	orderByStr := r.FormValue("orderby")
-	orderDirStr := r.FormValue("orderdir")
-	switch orderByStr {
-	case "0":
-		pageData.OrderBy = 0
-	case "1":
-		pageData.OrderBy = 1
-	default:
-		// Ignore any empty or invalid values
-	}
-	// Parse the order direction input
-	switch orderDirStr {
-	case "0":
-		pageData.OrderDir = 0
-	case "1":
-		pageData.OrderDir = 1
-	default:
-		// Ignore any empty or invalid values
 	}
 
 	// Check if the database exists and the user has access to view it
@@ -266,7 +256,7 @@ func visualisePage(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// If a specific table wasn't requested, use the user specified default (if present)
-	if dbTable == "" {
+	if xTable == "" || yTable == "" {
 		// Ensure the default table name validates.  This catches a case where a database was uploaded with an invalid
 		// table name and somehow because selected as the default
 		a := pageData.DB.Info.DefaultTable
@@ -274,7 +264,12 @@ func visualisePage(w http.ResponseWriter, r *http.Request) {
 			err = com.ValidatePGTable(a)
 			if err == nil {
 				// The database table name is acceptable, so use it
-				dbTable = pageData.DB.Info.DefaultTable
+				if xTable == "" {
+					xTable = pageData.DB.Info.DefaultTable
+				}
+				if yTable == "" {
+					yTable = pageData.DB.Info.DefaultTable
+				}
 			}
 		}
 	}
@@ -318,21 +313,37 @@ func visualisePage(w http.ResponseWriter, r *http.Request) {
 	pageData.DB.Info.Tables = tables
 
 	// If a specific table was requested, check that it's present
-	if dbTable != "" {
+	if xTable != "" || yTable != "" {
 		// Check the requested table is present
-		tablePresent := false
+		xTablePresent := false
+		yTablePresent := false
 		for _, tbl := range tables {
-			if tbl == dbTable {
-				tablePresent = true
+			if tbl == xTable {
+				xTablePresent = true
+			}
+			if tbl == yTable {
+				yTablePresent = true
 			}
 		}
-		if tablePresent == false {
-			// The requested table doesn't exist in the database, so pick one of the tables that is
+		if xTablePresent == false {
+			// The requested X axis table doesn't exist in the database, so pick one of the tables that is
 			for _, t := range tables {
 				err = com.ValidatePGTable(t)
 				if err == nil {
 					// Validation passed, so use this table
-					dbTable = t
+					xTable = t
+					pageData.DB.Info.DefaultTable = t
+					break
+				}
+			}
+		}
+		if yTablePresent == false {
+			// The requested Y axis table doesn't exist in the database, so pick one of the tables that is
+			for _, t := range tables {
+				err = com.ValidatePGTable(t)
+				if err == nil {
+					// Validation passed, so use this table
+					yTable = t
 					pageData.DB.Info.DefaultTable = t
 					break
 				}
@@ -340,50 +351,89 @@ func visualisePage(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	// If a specific table wasn't requested, use the first table in the database that passes validation
-	if dbTable == "" {
+	// If specific tables weren't requested, use the first table in the database that passes validation
+	if xTable == "" {
 		for _, i := range pageData.DB.Info.Tables {
 			if i != "" {
 				err = com.ValidatePGTable(i)
 				if err == nil {
 					// The database table name is acceptable, so use it
-					dbTable = i
+					xTable = i
+					break
+				}
+			}
+		}
+	}
+	if yTable == "" {
+		for _, i := range pageData.DB.Info.Tables {
+			if i != "" {
+				err = com.ValidatePGTable(i)
+				if err == nil {
+					// The database table name is acceptable, so use it
+					yTable = i
 					break
 				}
 			}
 		}
 	}
 
-	// Validate the table name, just to be careful
-	if dbTable != "" {
-		err = com.ValidatePGTable(dbTable)
+	// Validate the table names, just to be careful
+	if xTable != "" {
+		err = com.ValidatePGTable(xTable)
 		if err != nil {
 			// Validation failed, so don't pass on the table name
 
 			// If the failed table name is "{{ db.Tablename }}", don't bother logging it.  It's just a search
 			// bot picking up AngularJS in a string and doing a request with it
-			if dbTable != "{{ db.Tablename }}" {
-				log.Printf("%s: Validation failed for table name: '%s': %s", pageName, dbTable, err)
+			if xTable != "{{ db.Tablename }}" {
+				log.Printf("%s: Validation failed for table name: '%s': %s", pageName, xTable, err)
 			}
-			errorPage(w, r, http.StatusBadRequest, "Validation failed for table name")
+			errorPage(w, r, http.StatusBadRequest, "Validation failed for X axis table name")
+			return
+		}
+	}
+	if yTable != "" {
+		err = com.ValidatePGTable(yTable)
+		if err != nil {
+			// Validation failed, so don't pass on the table name
+
+			// If the failed table name is "{{ db.Tablename }}", don't bother logging it.  It's just a search
+			// bot picking up AngularJS in a string and doing a request with it
+			if yTable != "{{ db.Tablename }}" {
+				log.Printf("%s: Validation failed for table name: '%s': %s", pageName, yTable, err)
+			}
+			errorPage(w, r, http.StatusBadRequest, "Validation failed for Y axis table name")
 			return
 		}
 	}
 
-	// Retrieve the SQLite table and column names
-	pageData.Data.Tablename = dbTable
-	colList, err := sdb.Columns("", dbTable)
+	// Retrieve the SQLite X axis column names
+	pageData.XAxisTable = xTable
+	xColList, err := sdb.Columns("", xTable)
 	if err != nil {
-		log.Printf("Error when reading column names for table '%s': %v\n", dbTable,
-			err.Error())
+		log.Printf("Error when reading column names for table '%s': %v\n", xTable, err.Error())
 		errorPage(w, r, http.StatusInternalServerError, "Error when reading from the database")
 		return
 	}
 	var c []string
-	for _, j := range colList {
+	for _, j := range xColList {
 		c = append(c, j.Name)
 	}
-	pageData.Data.ColNames = c
+	pageData.XAxisColNames = c
+
+	// Retrieve the SQLite Y axis column names
+	pageData.YAxisTable = yTable
+	yColList, err := sdb.Columns("", yTable)
+	if err != nil {
+		log.Printf("Error when reading column names for table '%s': %v\n", yTable, err.Error())
+		errorPage(w, r, http.StatusInternalServerError, "Error when reading from the database")
+		return
+	}
+	var c2 []string
+	for _, j := range yColList {
+		c2 = append(c2, j.Name)
+	}
+	pageData.YAxisColNames = c2
 
 	// Retrieve the default visualisation parameters for this database, if they've been set
 	params, ok, err := com.GetVisualisationParams(dbOwner, dbFolder, dbName, "default")
@@ -395,8 +445,10 @@ func visualisePage(w http.ResponseWriter, r *http.Request) {
 	// If saved parameters were found, pass them through to the web page
 	if ok {
 		pageData.ParamsGiven = true
-		pageData.XAxis = params.XAXisColumn
-		pageData.YAxis = params.YAXisColumn
+		pageData.XAxisTable = params.XAxisTable
+		pageData.XAxisCol = params.XAXisColumn
+		pageData.YAxisTable = params.YAxisTable
+		pageData.YAxisCol = params.YAXisColumn
 		switch params.AggType {
 		case 0:
 			pageData.AggType = "---"
@@ -418,11 +470,9 @@ func visualisePage(w http.ResponseWriter, r *http.Request) {
 			errorPage(w, r, http.StatusInternalServerError, "Unknown aggregate type returned from database")
 			return
 		}
-		pageData.OrderBy = params.OrderBy
-		pageData.OrderDir = params.OrderDir
 
 		// Retrieve the saved data for this visualisation too, if it's available
-		hash := visHash(dbOwner, dbFolder, dbName, commitID, params.XAXisColumn, params.YAXisColumn, params.AggType, "default")
+		hash := visHash(dbOwner, dbFolder, dbName, commitID, params.XAxisTable, params.XAXisColumn, params.YAxisTable, params.YAXisColumn, params.AggType, "default")
 		data, ok, err := com.GetVisualisationData(dbOwner, dbFolder, dbName, commitID, hash)
 		if err != nil {
 			errorPage(w, r, http.StatusInternalServerError, err.Error())
@@ -539,8 +589,8 @@ func visualisePage(w http.ResponseWriter, r *http.Request) {
 func visRequestHandler(w http.ResponseWriter, r *http.Request) {
 	pageName := "Visualisation Request Handler"
 
-	// Retrieve user, database, table, and commit ID
-	dbOwner, dbName, requestedTable, commitID, err := com.GetODTC(2, r) // 1 = Ignore "/x/vis/" at the start of the URL
+	// Retrieve user, database, and commit ID
+	dbOwner, dbName, commitID, err := com.GetODC(2, r) // 1 = Ignore "/x/vis/" at the start of the URL
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -548,15 +598,41 @@ func visRequestHandler(w http.ResponseWriter, r *http.Request) {
 	dbFolder := "/"
 
 	// Extract X axis, Y axis, and aggregate type variables if present
+	xTable := r.FormValue("xtable")
 	xAxis := r.FormValue("xaxis")
+	yTable := r.FormValue("ytable")
 	yAxis := r.FormValue("yaxis")
 	aggTypeStr := r.FormValue("agg")
 
 	// Ensure minimum viable parameters are present
-	if xAxis == "" || yAxis == "" || aggTypeStr == "" || requestedTable == "" {
+	if xTable == "" || xAxis == "" || yTable == "" || yAxis == "" || aggTypeStr == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+
+	// Validate the X axis table name
+	if xTable != "" {
+		err := com.ValidatePGTable(xTable)
+		if err != nil {
+			msg := fmt.Sprintf("Invalid table name '%s' for X Axis", xTable)
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, "%s", msg)
+			return
+		}
+	}
+
+	// Validate the Y axis table name
+	if yTable != "" {
+		err := com.ValidatePGTable(yTable)
+		if err != nil {
+			msg := fmt.Sprintf("Invalid table name '%s' for Y Axis", yTable)
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, "%s", msg)
+			return
+		}
+	}
+
+	// Validate the aggregate type
 	aggType := 0
 	switch aggTypeStr {
 	case "---":
@@ -677,52 +753,68 @@ func visRequestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	tables = append(tables, vw...)
 
-	// If a specific table was requested, check it exists
-	if requestedTable != "" {
-		tablePresent := false
-		for _, tableName := range tables {
-			if requestedTable == tableName {
-				tablePresent = true
-			}
+	// Check the desired tables exist
+	xTablePresent := false
+	yTablePresent := false
+	for _, tableName := range tables {
+		if xTable == tableName {
+			xTablePresent = true
 		}
-		if tablePresent == false {
-			// The requested table doesn't exist
-			w.WriteHeader(http.StatusBadRequest)
-			fmt.Fprintf(w, "%s", fmt.Sprintf("The requested table '%v' doesn't exist in that database", requestedTable))
-			return
+		if yTable == tableName {
+			yTablePresent = true
 		}
 	}
+	if xTablePresent == false {
+		// The requested X axis table doesn't exist
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "%s", fmt.Sprintf("The requested X axis table '%v' doesn't exist in the database", xAxis))
+		return
+	}
+	if yTablePresent == false {
+		// The requested Y axis table doesn't exist
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "%s", fmt.Sprintf("The requested Y axis table '%v' doesn't exist in the database", yAxis))
+		return
+	}
 
-	// Verify the X and Y axis columns exist
-	colList, err := sdb.Columns("", requestedTable)
+	// Verify the X axis columns exist
+	xColList, err := sdb.Columns("", xTable)
 	if err != nil {
-		log.Printf("Error when reading column names for table '%s': %v\n", requestedTable, err.Error())
+		log.Printf("Error when reading column names for table '%s': %v\n", xTable, err.Error())
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	xColExists := false
-	for _, j := range colList {
+	for _, j := range xColList {
 		if j.Name == xAxis {
 			xColExists = true
 		}
 	}
 	if xColExists == false {
 		// The requested X axis column doesn't exist
-		msg := fmt.Sprintf("Requested X axis column '%s' doesn't exist in table: '%v'", xAxis, requestedTable)
+		msg := fmt.Sprintf("Requested X axis column '%s' doesn't exist in table: '%v'", xAxis, xTable)
 		log.Println(msg)
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprintf(w, "%s", msg)
 		return
 	}
+
+	// Verify the Y axis columns exist
+	yColList, err := sdb.Columns("", yTable)
+	if err != nil {
+		log.Printf("Error when reading column names for table '%s': %v\n", yTable, err.Error())
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
 	yColExists := false
-	for _, j := range colList {
+	for _, j := range yColList {
 		if j.Name == yAxis {
 			yColExists = true
 		}
 	}
 	if yColExists == false {
 		// The requested Y axis column doesn't exist
-		msg := fmt.Sprintf("Requested Y axis column '%s' doesn't exist in table: '%v'\n", yAxis, requestedTable)
+		msg := fmt.Sprintf("Requested Y axis column '%s' doesn't exist in table: '%v'\n", yAxis, yTable)
 		log.Printf(msg)
 		w.WriteHeader(http.StatusBadRequest)
 		fmt.Fprintf(w, "%s", msg)
@@ -730,7 +822,7 @@ func visRequestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Run the SQLite visualisation query
-	visRows, err := com.RunSQLiteVisQuery(sdb, requestedTable, xAxis, yAxis, aggType)
+	visRows, err := com.RunSQLiteVisQuery(sdb, xTable, xAxis, yTable, yAxis, aggType)
 	if err != nil {
 		// Some kind of error when running the visualisation query
 		log.Printf("Error occurred when running visualisation query '%s%s%s', commit '%s': %s\n", dbOwner,
@@ -754,7 +846,7 @@ func visSaveRequestHandler(w http.ResponseWriter, r *http.Request) {
 	pageName := "Visualisation Save Request Handler"
 
 	// Retrieve user, database, table, and commit ID
-	dbOwner, dbName, requestedTable, commitID, err := com.GetODTC(2, r) // 1 = Ignore "/x/vis/" at the start of the URL
+	dbOwner, dbName, commitID, err := com.GetODC(2, r) // 1 = Ignore "/x/vis/" at the start of the URL
 	if err != nil {
 		w.WriteHeader(http.StatusBadRequest)
 		return
@@ -762,17 +854,39 @@ func visSaveRequestHandler(w http.ResponseWriter, r *http.Request) {
 	dbFolder := "/"
 
 	// Extract X axis, Y axis, and aggregate type variables if present
+	xTable := r.FormValue("xtable")
 	xAxis := r.FormValue("xaxis")
+	yTable := r.FormValue("ytable")
 	yAxis := r.FormValue("yaxis")
 	aggTypeStr := r.FormValue("agg")
 	visName := r.FormValue("visname")
-	orderByStr := r.FormValue("orderby")
-	orderDirStr := r.FormValue("orderdir")
 
 	// Ensure minimum viable parameters are present
-	if xAxis == "" || yAxis == "" || requestedTable == "" || visName == "" || orderByStr == "" || orderDirStr == "" {
+	if xTable == "" || xAxis == "" || yTable == "" || yAxis == "" || visName == "" {
 		w.WriteHeader(http.StatusBadRequest)
 		return
+	}
+
+	// Validate the X axis table name
+	if xTable != "" {
+		err := com.ValidatePGTable(xTable)
+		if err != nil {
+			msg := fmt.Sprintf("Invalid table name '%s' for X Axis", xTable)
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, "%s", msg)
+			return
+		}
+	}
+
+	// Validate the Y axis table name
+	if yTable != "" {
+		err := com.ValidatePGTable(yTable)
+		if err != nil {
+			msg := fmt.Sprintf("Invalid table name '%s' for Y Axis", yTable)
+			w.WriteHeader(http.StatusBadRequest)
+			fmt.Fprintf(w, "%s", msg)
+			return
+		}
 	}
 
 	// Parse the aggregation type
@@ -796,32 +910,6 @@ func visSaveRequestHandler(w http.ResponseWriter, r *http.Request) {
 		aggType = 7
 	default:
 		log.Println("Unknown aggregate type requested")
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	// Parse the order by input
-	orderBy := 0
-	switch orderByStr {
-	case "0":
-		orderBy = 0
-	case "1":
-		orderBy = 1
-	default:
-		log.Println("Unknown order by input")
-		w.WriteHeader(http.StatusBadRequest)
-		return
-	}
-
-	// Parse the order direction input
-	orderDir := 0
-	switch orderDirStr {
-	case "0":
-		orderDir = 0
-	case "1":
-		orderDir = 1
-	default:
-		log.Println("Unknown order direction input")
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
@@ -938,62 +1026,76 @@ func visSaveRequestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 	tables = append(tables, vw...)
 
-	// If a specific table was requested, check it exists
-	if requestedTable != "" {
-		tablePresent := false
-		for _, tableName := range tables {
-			if requestedTable == tableName {
-				tablePresent = true
-			}
+	// Check the desired tables exist
+	xTablePresent := false
+	yTablePresent := false
+	for _, tableName := range tables {
+		if xTable == tableName {
+			xTablePresent = true
 		}
-		if tablePresent == false {
-			// The requested table doesn't exist
-			w.WriteHeader(http.StatusBadRequest)
-			return
+		if yTable == tableName {
+			yTablePresent = true
 		}
 	}
+	if xTablePresent == false {
+		// The requested X axis table doesn't exist
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "%s", fmt.Sprintf("The requested X axis table '%v' doesn't exist in the database", xAxis))
+		return
+	}
+	if yTablePresent == false {
+		// The requested Y axis table doesn't exist
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "%s", fmt.Sprintf("The requested Y axis table '%v' doesn't exist in the database", yAxis))
+		return
+	}
 
-	// Verify the X and Y axis columns exist
-	colList, err := sdb.Columns("", requestedTable)
+	// Verify the X axis columns exist
+	xColList, err := sdb.Columns("", xTable)
 	if err != nil {
-		log.Printf("Error when reading column names for table '%s': %v\n", requestedTable, err.Error())
+		log.Printf("Error when reading column names for table '%s': %v\n", xTable, err.Error())
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	xColExists := false
-	for _, j := range colList {
+	for _, j := range xColList {
 		if j.Name == xAxis {
 			xColExists = true
 		}
 	}
 	if xColExists == false {
 		// The requested X axis column doesn't exist
-		log.Printf("Requested X axis column doesn't exist '%s' in table: '%v'\n", xAxis, requestedTable)
+		msg := fmt.Sprintf("Requested X axis column '%s' doesn't exist in table: '%v'", xAxis, xTable)
+		log.Println(msg)
 		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "%s", msg)
+		return
+	}
+
+	// Verify the Y axis columns exist
+	yColList, err := sdb.Columns("", yTable)
+	if err != nil {
+		log.Printf("Error when reading column names for table '%s': %v\n", yTable, err.Error())
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	yColExists := false
-	for _, j := range colList {
+	for _, j := range yColList {
 		if j.Name == yAxis {
 			yColExists = true
 		}
 	}
 	if yColExists == false {
 		// The requested Y axis column doesn't exist
-		log.Printf("Requested Y axis column doesn't exist '%s' in table: '%v'\n", yAxis, requestedTable)
+		msg := fmt.Sprintf("Requested Y axis column '%s' doesn't exist in table: '%v'\n", yAxis, yTable)
+		log.Printf(msg)
 		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "%s", msg)
 		return
 	}
 
 	// Retrieve the visualisation query result, so we can save that too
-	visParams := com.VisParamsV1{
-		XAXisColumn: xAxis,
-		YAXisColumn: yAxis,
-		AggType:     aggType,
-		OrderBy:     orderBy,
-		OrderDir:    orderDir,
-	}
-	visData, err := com.RunSQLiteVisQuery(sdb, requestedTable, xAxis, yAxis, aggType)
+	visData, err := com.RunSQLiteVisQuery(sdb, xTable, xAxis, yTable, yAxis, aggType)
 	if err != nil {
 		// Some kind of error when running the visualisation query
 		log.Printf("Error occurred when running visualisation query '%s%s%s', commit '%s': %s\n", dbOwner,
@@ -1010,6 +1112,13 @@ func visSaveRequestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save the SQLite visualisation parameters
+	visParams := com.VisParamsV1{
+		XAxisTable:  xTable,
+		XAXisColumn: xAxis,
+		YAxisTable:  yTable,
+		YAXisColumn: yAxis,
+		AggType:     aggType,
+	}
 	err = com.VisualisationSaveParams(dbOwner, dbFolder, dbName, visName, visParams)
 	if err != nil {
 		log.Printf("Error occurred when saving visualisation '%s' for' '%s%s%s', commit '%s': %s\n", visName,
@@ -1019,7 +1128,7 @@ func visSaveRequestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save the SQLite visualisation data
-	hash := visHash(dbOwner, dbFolder, dbName, commitID, xAxis, yAxis, aggType, visName)
+	hash := visHash(dbOwner, dbFolder, dbName, commitID, xTable, xAxis, yTable, yAxis, aggType, visName)
 	err = com.VisualisationSaveData(dbOwner, dbFolder, dbName, commitID, hash, visData)
 	if err != nil {
 		log.Printf("Error occurred when saving visualisation '%s' for' '%s%s%s', commit '%s': %s\n", visName,
@@ -1033,7 +1142,7 @@ func visSaveRequestHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // Calculate the hash string to save or retrieve any visualisation data with
-func visHash(dbOwner string, dbFolder string, dbName string, commitID string, xAxis string, yAxis string, aggType int, visName string) string {
-	z := md5.Sum([]byte(fmt.Sprintf("%s/%s/%s/%s/%s/%s/%d/%s", strings.ToLower(dbOwner), dbFolder, dbName, commitID, xAxis, yAxis, aggType, visName)))
+func visHash(dbOwner string, dbFolder string, dbName string, commitID string, xTable string, xAxis string, yTable string, yAxis string, aggType int, visName string) string {
+	z := md5.Sum([]byte(fmt.Sprintf("%s/%s/%s/%s/%s/%s/%s/%s/%d/%s", strings.ToLower(dbOwner), dbFolder, dbName, commitID, xTable, xAxis, yTable, yAxis, aggType, visName)))
 	return hex.EncodeToString(z[:])
 }

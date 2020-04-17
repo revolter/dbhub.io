@@ -487,11 +487,13 @@ type UserInfo struct {
 }
 
 type VisParamsV1 struct {
+	XAxisTable  string
 	XAXisColumn string
+	YAxisTable  string
 	YAXisColumn string
 	AggType     int
-	OrderBy     int
-	OrderDir    int
+	OrderBy     int // No longer used
+	OrderDir    int // No longer used
 }
 
 type VisRowV1 struct {

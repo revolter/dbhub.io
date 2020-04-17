@@ -354,8 +354,8 @@
 <script>
     // Pre-filled table row data
     let barChartData = {
-        XTablename: "[[ .Data.Tablename ]]",
-        YTablename: "[[ .Data.Tablename ]]",
+        XTablename: "[[ .XAxisTable ]]",
+        YTablename: "[[ .YAxisTable ]]",
         XAxisLabel: "",
         YAxisLabel: "",
         Records: [[ .Records ]],
@@ -435,10 +435,10 @@
             [[ end ]]
         }
 
-        // Set the table name
+        // Set the table names
         $scope.db = {
-            XTablename: "[[ .Data.Tablename ]]",
-            YTablename: "[[ .Data.Tablename ]]",
+            XTablename: "[[ .XAxisTable ]]",
+            YTablename: "[[ .YAxisTable ]]",
         };
 
         // Set the displayed public/private value
@@ -494,10 +494,10 @@
 
         // Start out with the visualisation disabled, unless saved parameters were passed through
         $scope.showVis = false;
-        $scope.XColumnNames = [[ .Data.ColNames ]];
+        $scope.XColumnNames = [[ .XAxisColNames ]];
         $scope.XAxisColumn = $scope.XColumnNames[0];
         barChartData.XAxisLabel = $scope.XAxisColumn;
-        $scope.YColumnNames = [[ .Data.ColNames ]];
+        $scope.YColumnNames = [[ .YAxisColNames ]];
         $scope.YAxisColumn = $scope.YColumnNames[1];
         barChartData.YAxisLabel = $scope.YAxisColumn;
         $scope.AggType = "---";
@@ -518,8 +518,10 @@
 
         // If saved parameter data was passed through, update the initial values
         if ("[[ .ParamsGiven ]]" === "true") {
+            $scope.db.XTablename = "[[ .XAxisTable ]]";
             $scope.XAxisColumn = "[[ .XAxis ]]";
             barChartData.XAxisLabel = $scope.XAxisColumn;
+            $scope.db.YTablename = "[[ .YAxisTable ]]";
             $scope.YAxisColumn = "[[ .YAxis ]]";
             barChartData.YAxisLabel = $scope.YAxisColumn;
             $scope.AggType = "[[ .AggType ]]";

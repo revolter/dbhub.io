@@ -491,7 +491,7 @@ func SanityCheck(fileName string) (tables []string, err error) {
 }
 
 // Runs a SQLite database query, for the visualisation tab.
-func RunSQLiteVisQuery(sdb *sqlite.Conn, dbTable string, xAxis string, yAxis string, aggType int) ([]VisRowV1, error) {
+func RunSQLiteVisQuery(sdb *sqlite.Conn, xTable string, xAxis string, yTable string, yAxis string, aggType int) ([]VisRowV1, error) {
 	// Construct the SQLite visualisation query
 	aggText := ""
 	switch aggType {
@@ -515,18 +515,26 @@ func RunSQLiteVisQuery(sdb *sqlite.Conn, dbTable string, xAxis string, yAxis str
 		return []VisRowV1{}, errors.New("Unknown aggregate type")
 	}
 
-	// Construct the SQL query using sqlite.Mprintf() for safety
+	// * Construct the SQL query using sqlite.Mprintf() for safety *
 	var dbQuery string
-	if aggText != "" {
-		dbQuery = sqlite.Mprintf(`SELECT "%s",`, xAxis)
-		dbQuery += sqlite.Mprintf(` %s(`, aggText)
-		dbQuery += sqlite.Mprintf(`"%s")`, yAxis)
-		dbQuery += sqlite.Mprintf(` FROM "%s"`, dbTable)
-		dbQuery += sqlite.Mprintf(` GROUP BY "%s"`, xAxis)
+
+	// Check if we're joining tables
+	if xTable == yTable {
+		// Simple query, no join needed
+		if aggText != "" {
+			dbQuery = sqlite.Mprintf(`SELECT "%s",`, xAxis)
+			dbQuery += sqlite.Mprintf(` %s(`, aggText)
+			dbQuery += sqlite.Mprintf(`"%s")`, yAxis)
+			dbQuery += sqlite.Mprintf(` FROM "%s"`, xTable)
+			dbQuery += sqlite.Mprintf(` GROUP BY "%s"`, xAxis)
+		} else {
+			dbQuery = sqlite.Mprintf(`SELECT "%s",`, xAxis)
+			dbQuery += sqlite.Mprintf(` "%s"`, yAxis)
+			dbQuery += sqlite.Mprintf(` FROM "%s"`, xTable)
+		}
 	} else {
-		dbQuery = sqlite.Mprintf(`SELECT "%s",`, xAxis)
-		dbQuery += sqlite.Mprintf(` "%s"`, yAxis)
-		dbQuery += sqlite.Mprintf(` FROM "%s"`, dbTable)
+		// We're joining tables
+		// TODO: ...
 	}
 	var visRows []VisRowV1
 	stmt, err := sdb.Prepare(dbQuery)
