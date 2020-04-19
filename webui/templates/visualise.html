@@ -174,7 +174,7 @@
         <div class="col-md-8">
             <div class="row">
                 <div class="col-md-12">
-                    <h3 style="text-align: center;">Please choose the X and Y axes to visualise:</h3>
+                    <h3 style="text-align: center;">Please choose the X and Y axes to visualise</h3>
                 </div>
             </div>
             <div class="row">
@@ -280,7 +280,19 @@
 
                     <div class="row">
                         <div class="col-md-12">
-                            <h3 style="text-align: center;">Chart settings:</h3>
+                            <h3 style="text-align: center;">Generated SQL</h3>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-12">
+                            <textarea id="sql" rows="4"></textarea>
+                        </div>
+                    </div>
+
+                    <div class="row">
+                        <div class="col-md-12">
+                            <h3 style="text-align: center;">Chart settings</h3>
                         </div>
                     </div>
 
@@ -605,17 +617,50 @@
             )
         };
 
+        // Update the generated SQL display
+        $scope.updateSQL = function() {
+            // Update the generated SQL display
+            let sqlWindow = document.getElementById("sql");
+            if ($scope.db.XTablename === $scope.db.YTablename) {
+                if ($scope.AggType === "---") {
+                    sqlWindow.innerHTML = "SELECT\n    " +
+                        $scope.XAxisColumn + ", " + $scope.YAxisColumn + "\n" +
+                        "FROM\n    " + $scope.db.XTablename + ";";
+                    sqlWindow.rows = 4;
+                } else {
+                    sqlWindow.innerHTML = "SELECT\n    " +
+                        $scope.XAxisColumn + ", " + $scope.AggType + "(" + $scope.YAxisColumn + ")\n" +
+                        "FROM\n    " + $scope.db.XTablename + "\n" +
+                        "GROUP BY " + $scope.XAxisColumn + ";";
+                    sqlWindow.rows = 5;
+                }
+            } else {
+                // TODO: Add JOINs
+                sqlWindow.innerHTML = "SELECT\n    " +
+                    $scope.db.XTablename + "." + $scope.XAxisColumn + ", " +
+                    $scope.db.YTablename + "." + $scope.YAxisColumn + "\n" +
+                    "FROM\n    " + $scope.db.XTablename + ", " + $scope.db.YTablename + ";";
+                sqlWindow.rows = 4;
+            }
+        }
+        // Display the initial generated SQL
+        $scope.updateSQL();
+
         // Change the X Axis table
         $scope.changeXAxisTable = function(newtable) {
             $scope.db.XTablename = newtable;
-
             // Retrieve the column names for the new table
             $http.get("/x/table/[[ .Meta.Owner ]]/[[ .Meta.Database ]]?commit=[[ .DB.Info.CommitID ]]&table="+
                 newtable).then(
-                function (response) {
+                function success(response) {
                     // Update X axis columns
                     $scope.XColumnNames = response.data.ColNames;
                     $scope.XAxisColumn = $scope.XColumnNames[0];
+                    $scope.updateSQL();
+                }, function failure(response) {
+                    // Retrieving solumn names failed, so display the returned error message
+                    $scope.statusMessageColour = "red";
+                    $scope.statusMessage = "Retrieving column names failed: " + response.data;
                 }
             )
         };
@@ -623,6 +668,7 @@
         // Change the X Axis Column
         $scope.changeXAxisColumn = function(newcol) {
             $scope.XAxisColumn = newcol;
+            $scope.updateSQL();
 
             // If the graph is being shown, update it
             if ($scope.showVis === true) {
@@ -637,10 +683,15 @@
             // Retrieve the column names for the new table
             $http.get("/x/table/[[ .Meta.Owner ]]/[[ .Meta.Database ]]?commit=[[ .DB.Info.CommitID ]]&table="+
                 newtable).then(
-                function (response) {
+                function success(response) {
                     // Update Y axis columns
                     $scope.YColumnNames = response.data.ColNames;
                     $scope.YAxisColumn = $scope.YColumnNames[0];
+                    $scope.updateSQL();
+                }, function failure(response) {
+                    // Retrieving solumn names failed, so display the returned error message
+                    $scope.statusMessageColour = "red";
+                    $scope.statusMessage = "Retrieving column names failed: " + response.data;
                 }
             )
         };
@@ -648,6 +699,7 @@
         // Change the Y Axis Column
         $scope.changeYAxisColumn = function(newcol) {
             $scope.YAxisColumn = newcol;
+            $scope.updateSQL();
 
             // If the graph is being shown, update it
             if ($scope.showVis === true) {
@@ -658,6 +710,7 @@
         // Change the Aggregate function
         $scope.changeAggType = function(newagg) {
             $scope.AggType = newagg;
+            $scope.updateSQL();
 
             // If the graph is being shown, update it
             if ($scope.showVis === true) {
