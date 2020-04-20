@@ -252,6 +252,31 @@
                         </tr>
                     </table>
 
+                    <div ng-show="showJoinChooser === true" class="row">
+                        <div class="col-md-12">
+                            <h3 style="text-align: center;">JOIN type for the tables</h3>
+                        </div>
+                    </div>
+                    <table ng-show="showJoinChooser === true" class="table table-striped table-responsive settingsTable">
+                        <tr>
+                            <th>Join type</th>
+                            <td>
+                                <div class="btn-group" uib-dropdown keyboard-nav="true">
+                                    <button id="orderby" type="button" class="btn">{{ JoinType }}</button>
+
+                                    <button type="button" uib-dropdown-toggle class="btn btn-default">
+                                        <span class="caret"></span>
+                                    </button>
+                                    <ul uib-dropdown-menu class="dropdown-menu" role="menu">
+                                        <li ng-repeat="row in joinTypes" role="menuitem" ng-click="changeJoinType(row)">
+                                            <a href="">{{ row }}</a>
+                                        </li>
+                                    </ul>
+                                </div>
+                            </td>
+                        </tr>
+                    </table>
+
                     <div class="row">
                         <div class="col-md-12">
                             <h3 style="text-align: center;">Do you want to use an aggregate function on the second axis? (<a href="https://www.sqlite.org/lang_aggfunc.html" target="_blank">info</a>)</h3>
@@ -298,7 +323,7 @@
 
                     <table class="table table-striped table-responsive settingsTable">
                         <tr>
-                            <th>Horizontal or vertical bar chart?</th>
+                            <th>Chart type</th>
                             <td>
                                 <div class="btn-group" uib-dropdown keyboard-nav="true">
                                     <button id="orderby" type="button" class="btn">{{ BarCharDirection }}</button>
@@ -308,8 +333,8 @@
                                     </button>
                                     <ul uib-dropdown-menu class="dropdown-menu" role="menu">
                                         <li role="menuitem">
-                                            <a href="" ng-click="barChartChangeDir('h')">Horizontal</a>
-                                            <a href="" ng-click="barChartChangeDir('v')">Vertical</a>
+                                            <a href="" ng-click="chartChangeType('h')">Horizontal bar chart</a>
+                                            <a href="" ng-click="chartChangeType('v')">Vertical bar chart</a>
                                         </li>
                                     </ul>
                                 </div>
@@ -336,7 +361,7 @@
     <div class="row" style="border: none;">
         &nbsp;
     </div>
-    <div class="row">
+    <div ng-show="showVis === true" class="row">
         <div class="col-md-12">
             <div id="vis" style="width:100%;"></div>
         </div>
@@ -519,16 +544,21 @@
         barChartData.YAxisLabel = $scope.YAxisColumn;
         $scope.AggType = "---";
         $scope.aggTypes = ["---", "avg", "count", "group_concat", "max", "min", "sum", "total"];
-        $scope.BarCharDirection = "Vertical";
+        $scope.BarCharDirection = "Vertical bar chart";
 
-        // Change the bar chart bar direction
-        $scope.barChartChangeDir = function(dir) {
-            if (dir === "h") {
+        // Start out with the JOIN chooser hidden
+        $scope.showJoinChooser = false;
+        $scope.JoinType = "---";
+        $scope.joinTypes = ["---", "INNER JOIN", "LEFT OUTER JOIN", "CROSS JOIN"];
+
+        // Change the type of chart
+        $scope.chartChangeType = function(newType) {
+            if (newType === "h") {
                 plotData[0].orientation = "h";
-                $scope.BarCharDirection = "Horizontal";
+                $scope.BarCharDirection = "Vertical bar chart";
             } else {
                 plotData[0].orientation = "v";
-                $scope.BarCharDirection = "Vertical";
+                $scope.BarCharDirection = "Vertical bar chart";
             }
             $scope.doChart(true);
         };
@@ -586,6 +616,9 @@
                     $scope.showVis = true;
                     dataReceived = true;
                     $scope.doChart(true);
+
+                    // Clear any existing status message
+                    $scope.statusMessage = "";
                 }, function failure(response) {
                     // Retrieving data failed, so display the returned error message and hide the graph
                     $scope.statusMessageColour = "red";
@@ -639,7 +672,7 @@
                 sqlWindow.innerHTML = "SELECT\n    " +
                     $scope.db.XTablename + "." + $scope.XAxisColumn + ", " +
                     $scope.db.YTablename + "." + $scope.YAxisColumn + "\n" +
-                    "FROM\n    " + $scope.db.XTablename + ", " + $scope.db.YTablename + ";";
+                    "FROM\n    " + $scope.db.XTablename + " " + $scope.JoinType + " " + $scope.db.YTablename + ";";
                 sqlWindow.rows = 4;
             }
         }
@@ -653,14 +686,22 @@
             $http.get("/x/table/[[ .Meta.Owner ]]/[[ .Meta.Database ]]?commit=[[ .DB.Info.CommitID ]]&table="+
                 newtable).then(
                 function success(response) {
+                    // Display the join chooser if needed
+                    if ($scope.db.XTablename === $scope.db.YTablename) {
+                        $scope.showJoinChooser = false;
+                    } else {
+                        $scope.showJoinChooser = true;
+                    }
+
                     // Update X axis columns
+                    $scope.showVis = true;
                     $scope.XColumnNames = response.data.ColNames;
-                    $scope.XAxisColumn = $scope.XColumnNames[0];
-                    $scope.updateSQL();
+                    $scope.changeXAxisColumn($scope.XColumnNames[0]);
                 }, function failure(response) {
-                    // Retrieving solumn names failed, so display the returned error message
+                    // Retrieving column names failed, so display the returned error message
                     $scope.statusMessageColour = "red";
                     $scope.statusMessage = "Retrieving column names failed: " + response.data;
+                    $scope.showVis = false;
                 }
             )
         };
@@ -679,19 +720,26 @@
         // Change the Y Axis table
         $scope.changeYAxisTable = function(newtable) {
             $scope.db.YTablename = newtable;
-
             // Retrieve the column names for the new table
             $http.get("/x/table/[[ .Meta.Owner ]]/[[ .Meta.Database ]]?commit=[[ .DB.Info.CommitID ]]&table="+
                 newtable).then(
                 function success(response) {
+                    // Display the join chooser if needed
+                    if ($scope.db.XTablename === $scope.db.YTablename) {
+                        $scope.showJoinChooser = false;
+                    } else {
+                        $scope.showJoinChooser = true;
+                    }
+
                     // Update Y axis columns
+                    $scope.showVis = true;
                     $scope.YColumnNames = response.data.ColNames;
-                    $scope.YAxisColumn = $scope.YColumnNames[0];
-                    $scope.updateSQL();
+                    $scope.changeYAxisColumn($scope.YColumnNames[0]);
                 }, function failure(response) {
-                    // Retrieving solumn names failed, so display the returned error message
+                    // Retrieving column names failed, so display the returned error message
                     $scope.statusMessageColour = "red";
                     $scope.statusMessage = "Retrieving column names failed: " + response.data;
+                    $scope.showVis = false;
                 }
             )
         };
@@ -710,6 +758,17 @@
         // Change the Aggregate function
         $scope.changeAggType = function(newagg) {
             $scope.AggType = newagg;
+            $scope.updateSQL();
+
+            // If the graph is being shown, update it
+            if ($scope.showVis === true) {
+                $scope.doVis();
+            }
+        };
+
+        // Change the SQLite JOIN type
+        $scope.changeJoinType = function(newjoin) {
+            $scope.JoinType = newjoin;
             $scope.updateSQL();
 
             // If the graph is being shown, update it
