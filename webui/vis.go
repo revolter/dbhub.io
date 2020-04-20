@@ -472,7 +472,8 @@ func visualisePage(w http.ResponseWriter, r *http.Request) {
 		}
 
 		// Retrieve the saved data for this visualisation too, if it's available
-		hash := visHash(dbOwner, dbFolder, dbName, commitID, params.XAxisTable, params.XAXisColumn, params.YAxisTable, params.YAXisColumn, params.AggType, "default")
+		// TODO: Add join type
+		hash := visHash(dbOwner, dbFolder, dbName, commitID, params.XAxisTable, params.XAXisColumn, params.YAxisTable, params.YAXisColumn, params.AggType, 1, "default")
 		data, ok, err := com.GetVisualisationData(dbOwner, dbFolder, dbName, commitID, hash)
 		if err != nil {
 			errorPage(w, r, http.StatusInternalServerError, err.Error())
@@ -603,6 +604,7 @@ func visRequestHandler(w http.ResponseWriter, r *http.Request) {
 	yTable := r.FormValue("ytable")
 	yAxis := r.FormValue("yaxis")
 	aggTypeStr := r.FormValue("agg")
+	joinTypeStr := r.FormValue("join")
 
 	// Ensure minimum viable parameters are present
 	if xTable == "" || xAxis == "" || yTable == "" || yAxis == "" || aggTypeStr == "" {
@@ -654,6 +656,23 @@ func visRequestHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		log.Println("Unknown aggregate type requested")
 		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "%s", "Unknown aggregate type requested")
+		return
+	}
+
+	// Validate the join type
+	joinType := 0
+	switch joinTypeStr {
+	case "INNER JOIN":
+		joinType = 1
+	case "LEFT OUTER JOIN":
+		joinType = 2
+	case "CROSS JOIN":
+		joinType = 3
+	default:
+		log.Println("Unknown join type requested")
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "%s", "Unknown join type requested")
 		return
 	}
 
@@ -702,6 +721,7 @@ func visRequestHandler(w http.ResponseWriter, r *http.Request) {
 		// The requested database wasn't found
 		log.Printf("%s: Requested database not found. Owner: '%s%s%s'", pageName, dbOwner, dbFolder, dbName)
 		w.WriteHeader(http.StatusNotFound)
+		fmt.Fprintf(w, "%s", "Requested database not found")
 		return
 	}
 
@@ -709,6 +729,7 @@ func visRequestHandler(w http.ResponseWriter, r *http.Request) {
 	sdb, err := com.OpenMinioObject(bucket, id)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
+		fmt.Fprintf(w, "%s", "Couldn't open requested database")
 		return
 	}
 
@@ -730,20 +751,24 @@ func visRequestHandler(w http.ResponseWriter, r *http.Request) {
 				tables, err = sdb.Tables("")
 				if err != nil {
 					log.Printf("Error retrieving table names: %s", err)
+					w.WriteHeader(http.StatusInternalServerError)
 					return
 				}
 			} else {
 				log.Printf("Error retrieving table names: %s", err)
+				w.WriteHeader(http.StatusInternalServerError)
 				return
 			}
 		} else {
 			log.Printf("Error retrieving table names: %s", err)
+			w.WriteHeader(http.StatusInternalServerError)
 			return
 		}
 	}
 	if len(tables) == 0 {
 		// No table names were returned, so abort
 		log.Printf("The database '%s' doesn't seem to have any tables. Aborting.", dbName)
+		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 	vw, err := sdb.Views("")
@@ -822,7 +847,7 @@ func visRequestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Run the SQLite visualisation query
-	visRows, err := com.RunSQLiteVisQuery(sdb, xTable, xAxis, yTable, yAxis, aggType)
+	visRows, err := com.RunSQLiteVisQuery(sdb, xTable, xAxis, yTable, yAxis, aggType, joinType)
 	if err != nil {
 		// Some kind of error when running the visualisation query
 		log.Printf("Error occurred when running visualisation query '%s%s%s', commit '%s': %s\n", dbOwner,
@@ -860,6 +885,7 @@ func visSaveRequestHandler(w http.ResponseWriter, r *http.Request) {
 	yAxis := r.FormValue("yaxis")
 	aggTypeStr := r.FormValue("agg")
 	visName := r.FormValue("visname")
+	joinTypeStr := r.FormValue("join")
 
 	// Ensure minimum viable parameters are present
 	if xTable == "" || xAxis == "" || yTable == "" || yAxis == "" || visName == "" {
@@ -911,6 +937,22 @@ func visSaveRequestHandler(w http.ResponseWriter, r *http.Request) {
 	default:
 		log.Println("Unknown aggregate type requested")
 		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+
+	// Validate the join type
+	joinType := 0
+	switch joinTypeStr {
+	case "INNER JOIN":
+		joinType = 1
+	case "LEFT OUTER JOIN":
+		joinType = 2
+	case "CROSS JOIN":
+		joinType = 3
+	default:
+		log.Println("Unknown join type requested")
+		w.WriteHeader(http.StatusBadRequest)
+		fmt.Fprintf(w, "%s", "Unknown join type requested")
 		return
 	}
 
@@ -1095,7 +1137,7 @@ func visSaveRequestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Retrieve the visualisation query result, so we can save that too
-	visData, err := com.RunSQLiteVisQuery(sdb, xTable, xAxis, yTable, yAxis, aggType)
+	visData, err := com.RunSQLiteVisQuery(sdb, xTable, xAxis, yTable, yAxis, aggType, joinType)
 	if err != nil {
 		// Some kind of error when running the visualisation query
 		log.Printf("Error occurred when running visualisation query '%s%s%s', commit '%s': %s\n", dbOwner,
@@ -1118,6 +1160,7 @@ func visSaveRequestHandler(w http.ResponseWriter, r *http.Request) {
 		YAxisTable:  yTable,
 		YAXisColumn: yAxis,
 		AggType:     aggType,
+		JoinType:    joinType,
 	}
 	err = com.VisualisationSaveParams(dbOwner, dbFolder, dbName, visName, visParams)
 	if err != nil {
@@ -1128,7 +1171,7 @@ func visSaveRequestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// Save the SQLite visualisation data
-	hash := visHash(dbOwner, dbFolder, dbName, commitID, xTable, xAxis, yTable, yAxis, aggType, visName)
+	hash := visHash(dbOwner, dbFolder, dbName, commitID, xTable, xAxis, yTable, yAxis, aggType, joinType, visName)
 	err = com.VisualisationSaveData(dbOwner, dbFolder, dbName, commitID, hash, visData)
 	if err != nil {
 		log.Printf("Error occurred when saving visualisation '%s' for' '%s%s%s', commit '%s': %s\n", visName,
@@ -1142,7 +1185,7 @@ func visSaveRequestHandler(w http.ResponseWriter, r *http.Request) {
 }
 
 // Calculate the hash string to save or retrieve any visualisation data with
-func visHash(dbOwner string, dbFolder string, dbName string, commitID string, xTable string, xAxis string, yTable string, yAxis string, aggType int, visName string) string {
-	z := md5.Sum([]byte(fmt.Sprintf("%s/%s/%s/%s/%s/%s/%s/%s/%d/%s", strings.ToLower(dbOwner), dbFolder, dbName, commitID, xTable, xAxis, yTable, yAxis, aggType, visName)))
+func visHash(dbOwner string, dbFolder string, dbName string, commitID string, xTable string, xAxis string, yTable string, yAxis string, aggType int, joinType int, visName string) string {
+	z := md5.Sum([]byte(fmt.Sprintf("%s/%s/%s/%s/%s/%s/%s/%s/%d/%d/%s", strings.ToLower(dbOwner), dbFolder, dbName, commitID, xTable, xAxis, yTable, yAxis, aggType, joinType, visName)))
 	return hex.EncodeToString(z[:])
 }

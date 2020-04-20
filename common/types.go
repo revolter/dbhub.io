@@ -492,6 +492,7 @@ type VisParamsV1 struct {
 	YAxisTable  string
 	YAXisColumn string
 	AggType     int
+	JoinType    int
 	OrderBy     int // No longer used
 	OrderDir    int // No longer used
 }

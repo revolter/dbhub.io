@@ -593,6 +593,9 @@
             args += "&xaxis=" + $scope.XAxisColumn;
             args += "&yaxis=" + $scope.YAxisColumn;
             args += "&agg=" + $scope.AggType;
+            if ($scope.JoinType !== "---") {
+                args += "&join=" + $scope.JoinType;
+            }
             $http.get("/x/vis/[[ .Meta.Owner ]]/[[ .Meta.Database ]]?commit=[[ .DB.Info.CommitID ]]&"+args).then(
                 function success(response) {
                     // Clear any existing error message
@@ -631,6 +634,9 @@
             args += "&yaxis=" + $scope.YAxisColumn;
             args += "&visname=" + visName;
             args += "&agg=" + $scope.AggType;
+            if ($scope.JoinType !== "---") {
+                args += "&join=" + $scope.JoinType;
+            }
             $http.get("/x/vissave/[[ .Meta.Owner ]]/[[ .Meta.Database ]]?commit=[[ .DB.Info.CommitID ]]&"+args).then(
                 function success(response) {
                     $scope.statusMessageColour = "green";

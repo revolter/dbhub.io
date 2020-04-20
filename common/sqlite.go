@@ -491,7 +491,7 @@ func SanityCheck(fileName string) (tables []string, err error) {
 }
 
 // Runs a SQLite database query, for the visualisation tab.
-func RunSQLiteVisQuery(sdb *sqlite.Conn, xTable string, xAxis string, yTable string, yAxis string, aggType int) ([]VisRowV1, error) {
+func RunSQLiteVisQuery(sdb *sqlite.Conn, xTable string, xAxis string, yTable string, yAxis string, aggType int, joinType int) ([]VisRowV1, error) {
 	// Construct the SQLite visualisation query
 	aggText := ""
 	switch aggType {
@@ -515,6 +515,18 @@ func RunSQLiteVisQuery(sdb *sqlite.Conn, xTable string, xAxis string, yTable str
 		return []VisRowV1{}, errors.New("Unknown aggregate type")
 	}
 
+	joinText := ""
+	switch joinType {
+	case 1:
+		joinText = "INNER JOIN"
+	case 2:
+		joinText = "LEFT OUTER JOIN"
+	case 3:
+		joinText = "CROSS JOIN"
+	default:
+		return []VisRowV1{}, errors.New("Unknown join type")
+	}
+
 	// * Construct the SQL query using sqlite.Mprintf() for safety *
 	var dbQuery string
 
@@ -534,8 +546,15 @@ func RunSQLiteVisQuery(sdb *sqlite.Conn, xTable string, xAxis string, yTable str
 		}
 	} else {
 		// We're joining tables
-		// TODO: ...
+		dbQuery = sqlite.Mprintf(`SELECT "%s"`, xTable)
+		dbQuery += sqlite.Mprintf(`."%s",`, xAxis)
+		dbQuery += sqlite.Mprintf(` "%s"`, yTable)
+		dbQuery += sqlite.Mprintf(`."%s"`, yAxis)
+		dbQuery += sqlite.Mprintf(` FROM "%s"`, xTable)
+		dbQuery += sqlite.Mprintf(` %s`, joinText)
+		dbQuery += sqlite.Mprintf(` "%s"`, yTable)
 	}
+log.Printf("SQLite query:\n%v", dbQuery)
 	var visRows []VisRowV1
 	stmt, err := sdb.Prepare(dbQuery)
 	if err != nil {
